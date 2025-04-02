@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { UserProfile } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
 
 // Define types for auth context
 type AuthContextType = {
@@ -29,6 +30,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const isMockMode = !import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY;
 
   // Check if user is already logged in
   useEffect(() => {
@@ -48,6 +50,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
         if (profile && !error) {
           setUser(profile as UserProfile);
+        }
+      } else if (isMockMode) {
+        // For development without Supabase, use demo user
+        const storedUser = localStorage.getItem('mockUser');
+        if (storedUser) {
+          setUser(JSON.parse(storedUser));
         }
       }
       
@@ -79,13 +87,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [isMockMode]);
 
   // Login function
   const login = async (username: string, password: string) => {
     setIsLoading(true);
     
     try {
+      if (isMockMode) {
+        // For development without Supabase, use mock login
+        if (username === 'demo') {
+          const mockUser: UserProfile = {
+            id: 'mock-id-123',
+            username: 'demo',
+            name: 'Demo User',
+            age: 25,
+            height: 170,
+            weight: 70,
+            created_at: new Date().toISOString(),
+          };
+          
+          setUser(mockUser);
+          localStorage.setItem('mockUser', JSON.stringify(mockUser));
+          return;
+        } else {
+          throw new Error('In demo mode, only username "demo" is accepted');
+        }
+      }
+      
       // First, get user by username to get their email
       const { data: userProfile, error: profileError } = await supabase
         .from('profiles')
@@ -121,6 +150,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     
     try {
+      if (isMockMode) {
+        // For development without Supabase, use mock registration
+        const mockUser: UserProfile = {
+          id: `mock-id-${Date.now()}`,
+          username: userData.username,
+          name: userData.name,
+          age: userData.age,
+          height: userData.height,
+          weight: userData.weight,
+          created_at: new Date().toISOString(),
+        };
+        
+        setUser(mockUser);
+        localStorage.setItem('mockUser', JSON.stringify(mockUser));
+        return;
+      }
+
       // Check if username already exists
       const { data: existingUser } = await supabase
         .from('profiles')
@@ -176,6 +222,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Logout function
   const logout = async () => {
+    if (isMockMode) {
+      // For development without Supabase, clear local storage
+      localStorage.removeItem('mockUser');
+      setUser(null);
+      return;
+    }
+    
     await supabase.auth.signOut();
     setUser(null);
   };
