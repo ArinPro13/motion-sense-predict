@@ -1,131 +1,172 @@
 
-import * as mqtt from 'mqtt';
+import mqtt from 'mqtt';
 
-// MQTT connection configuration
-const MQTT_SERVER = 'wss://broker.emqx.io:8084/mqtt'; // Example public MQTT broker
-
-// MQTT client instance
-let client: mqtt.MqttClient | null = null;
-
-/**
- * Connect to the MQTT broker
- * @returns The MQTT client instance
- */
-export const connectMqtt = (): Promise<mqtt.MqttClient> => {
-  return new Promise((resolve, reject) => {
-    try {
-      client = mqtt.connect(MQTT_SERVER);
-      
-      client.on('connect', () => {
-        console.log('Connected to MQTT broker');
-        resolve(client as mqtt.MqttClient);
-      });
-      
-      client.on('error', (err) => {
-        console.error('MQTT connection error:', err);
-        reject(err);
-      });
-    } catch (error) {
-      console.error('Error connecting to MQTT broker:', error);
-      reject(error);
-    }
-  });
+export type SensorData = {
+  acceleration: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  gyroscope: {
+    x: number;
+    y: number;
+    z: number;
+  };
+  timestamp: number;
 };
 
-/**
- * Subscribe to an MQTT topic
- * @param topic The topic to subscribe to
- * @param callback Function to call when a message is received
- */
-export const subscribeTopic = (
-  topic: string, 
-  callback: (message: string) => void
-): void => {
-  if (!client) {
-    console.error('MQTT client not connected');
-    return;
+export type MQTTConfig = {
+  brokerUrl: string;
+  username?: string;
+  password?: string;
+  clientId: string;
+  topic: string;
+};
+
+class MQTTService {
+  private client: mqtt.MqttClient | null = null;
+  private onMessageCallback: ((data: SensorData) => void) | null = null;
+  private config: MQTTConfig | null = null;
+  private isConnected: boolean = false;
+
+  // Configure MQTT connection
+  configure(config: MQTTConfig): void {
+    this.config = config;
   }
-  
-  client.subscribe(topic, (err) => {
-    if (err) {
-      console.error(`Error subscribing to topic ${topic}:`, err);
-      return;
+
+  // Connect to MQTT broker
+  connect(onMessageCallback: (data: SensorData) => void): Promise<void> {
+    if (!this.config) {
+      return Promise.reject(new Error('MQTT not configured'));
     }
-    
-    console.log(`Subscribed to topic: ${topic}`);
-  });
-  
-  client.on('message', (receivedTopic, message) => {
-    if (receivedTopic === topic) {
+
+    return new Promise((resolve, reject) => {
       try {
-        const messageStr = message.toString();
-        callback(messageStr);
+        // Mock MQTT connection for the demo
+        console.log(`Connecting to MQTT broker: ${this.config?.brokerUrl}`);
+        
+        // In a real implementation, connect to the broker
+        // this.client = mqtt.connect(this.config.brokerUrl, {
+        //   clientId: this.config.clientId,
+        //   username: this.config.username,
+        //   password: this.config.password
+        // });
+
+        // For demo, simulate a connection with a mock client
+        this.client = {
+          on: (event: string, callback: any) => {
+            if (event === 'connect') {
+              setTimeout(() => {
+                callback();
+                this.isConnected = true;
+              }, 500);
+            }
+          },
+          subscribe: (topic: string, callback: any) => {
+            console.log(`Subscribed to topic: ${topic}`);
+            callback(null);
+          },
+          unsubscribe: (topic: string, callback: any) => {
+            console.log(`Unsubscribed from topic: ${topic}`);
+            callback(null);
+          },
+          publish: (topic: string, message: string) => {
+            console.log(`Published to topic: ${topic}, message: ${message}`);
+          },
+          end: (force: boolean, callback: any) => {
+            this.isConnected = false;
+            console.log('MQTT connection ended');
+            if (callback) callback();
+          }
+        } as unknown as mqtt.MqttClient;
+
+        this.onMessageCallback = onMessageCallback;
+
+        this.client.on('connect', () => {
+          console.log('Connected to MQTT broker');
+          
+          if (this.config && this.client) {
+            this.client.subscribe(this.config.topic, (err) => {
+              if (err) {
+                console.error('Failed to subscribe to topic:', err);
+                reject(err);
+              } else {
+                console.log(`Subscribed to topic: ${this.config.topic}`);
+                // Start generating mock data
+                this.startMockDataGeneration();
+                resolve();
+              }
+            });
+          }
+        });
+
+        // Handle errors
+        this.client.on('error', (err) => {
+          console.error('MQTT connection error:', err);
+          reject(err);
+        });
+
       } catch (error) {
-        console.error('Error processing MQTT message:', error);
+        console.error('Error connecting to MQTT broker:', error);
+        reject(error);
       }
-    }
-  });
-};
-
-/**
- * Unsubscribe from an MQTT topic
- * @param topic The topic to unsubscribe from
- */
-export const unsubscribeTopic = (topic: string): void => {
-  if (!client) {
-    console.error('MQTT client not connected');
-    return;
+    });
   }
-  
-  client.unsubscribe(topic, (err) => {
-    if (err) {
-      console.error(`Error unsubscribing from topic ${topic}:`, err);
-      return;
-    }
-    
-    console.log(`Unsubscribed from topic: ${topic}`);
-  });
-};
 
-/**
- * Publish a message to an MQTT topic
- * @param topic The topic to publish to
- * @param message The message to publish
- */
-export const publishMessage = (topic: string, message: string): void => {
-  if (!client) {
-    console.error('MQTT client not connected');
-    return;
+  // Simulate receiving data for demo purposes
+  private startMockDataGeneration(): void {
+    if (!this.onMessageCallback) return;
+
+    // Generate mock sensor data every second
+    const interval = setInterval(() => {
+      if (!this.isConnected || !this.onMessageCallback) {
+        clearInterval(interval);
+        return;
+      }
+
+      // Generate random sensor values between -10 and 10
+      const randomValue = () => Math.random() * 20 - 10;
+      
+      const mockData: SensorData = {
+        acceleration: {
+          x: randomValue(),
+          y: randomValue(),
+          z: randomValue(),
+        },
+        gyroscope: {
+          x: randomValue(),
+          y: randomValue(),
+          z: randomValue(),
+        },
+        timestamp: Date.now(),
+      };
+
+      this.onMessageCallback(mockData);
+    }, 1000);
   }
-  
-  client.publish(topic, message, (err) => {
-    if (err) {
-      console.error(`Error publishing to topic ${topic}:`, err);
-      return;
-    }
-    
-    console.log(`Published message to topic: ${topic}`);
-  });
-};
 
-/**
- * Disconnect from the MQTT broker
- */
-export const disconnectMqtt = (): void => {
-  if (!client) {
-    console.log('MQTT client already disconnected');
-    return;
+  // Disconnect from MQTT broker
+  disconnect(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.client && this.isConnected) {
+        this.client.end(true, () => {
+          this.isConnected = false;
+          this.onMessageCallback = null;
+          console.log('Disconnected from MQTT broker');
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
   }
-  
-  client.end();
-  client = null;
-  console.log('Disconnected from MQTT broker');
-};
 
-export default {
-  connectMqtt,
-  subscribeTopic,
-  unsubscribeTopic,
-  publishMessage,
-  disconnectMqtt
-};
+  // Check if connected
+  isConnectedToBroker(): boolean {
+    return this.isConnected;
+  }
+}
+
+// Create a singleton instance
+const mqttService = new MQTTService();
+export default mqttService;
