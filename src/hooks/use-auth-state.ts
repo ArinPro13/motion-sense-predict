@@ -1,6 +1,6 @@
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import type { UserProfile } from '@/lib/supabase';
 
 export function useAuthState() {
@@ -12,56 +12,28 @@ export function useAuthState() {
     const checkSession = async () => {
       setIsLoading(true);
       
-      // Check for active Supabase session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-        // Fetch user profile from profiles table
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-          
-        if (profile && !error) {
-          setUser(profile as UserProfile);
+      try {
+        if (isMockMode) {
+          // For development without Supabase, use demo user from localStorage
+          const storedUser = localStorage.getItem('mockUser') || localStorage.getItem('currentUser');
+          if (storedUser) {
+            setUser(JSON.parse(storedUser));
+          }
+        } else {
+          // Check for stored user in localStorage
+          const storedUser = localStorage.getItem('currentUser');
+          if (storedUser) {
+            setUser(JSON.parse(storedUser));
+          }
         }
-      } else if (isMockMode) {
-        // For development without Supabase, use demo user
-        const storedUser = localStorage.getItem('mockUser');
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
-        }
+      } catch (error) {
+        console.error('Error checking session:', error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     };
     
     checkSession();
-    
-    // Set up auth state change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
-          // Fetch user profile
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-            
-          if (profile) {
-            setUser(profile as UserProfile);
-          }
-        } else if (event === 'SIGNED_OUT') {
-          setUser(null);
-        }
-      }
-    );
-    
-    return () => {
-      subscription.unsubscribe();
-    };
   }, [isMockMode]);
 
   return {

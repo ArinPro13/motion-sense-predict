@@ -11,25 +11,31 @@ export type Database = {
     Tables: {
       Users: {
         Row: {
-          Age: number | null
-          Height: string | null
-          Name: string
+          age: number
+          full_name: string
+          height_cm: number
+          password_hash: string
           user_id: number
-          Weight: number | null
+          username: string
+          weight_kg: number
         }
         Insert: {
-          Age?: number | null
-          Height?: string | null
-          Name: string
+          age: number
+          full_name: string
+          height_cm: number
+          password_hash: string
           user_id?: number
-          Weight?: number | null
+          username: string
+          weight_kg: number
         }
         Update: {
-          Age?: number | null
-          Height?: string | null
-          Name?: string
+          age?: number
+          full_name?: string
+          height_cm?: number
+          password_hash?: string
           user_id?: number
-          Weight?: number | null
+          username?: string
+          weight_kg?: number
         }
         Relationships: []
       }

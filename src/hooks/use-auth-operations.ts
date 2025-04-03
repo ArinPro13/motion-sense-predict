@@ -1,13 +1,16 @@
 
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
 import { RegisterData } from '@/types/auth';
 import type { UserProfile } from '@/lib/supabase';
+import { useToast } from '@/hooks/use-toast';
 
 export function useAuthOperations(
   setUser: React.Dispatch<React.SetStateAction<UserProfile | null>>,
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>,
   isMockMode: boolean
 ) {
+  const { toast } = useToast();
+  
   // Login function
   const login = async (username: string, password: string) => {
     setIsLoading(true);
@@ -34,30 +37,48 @@ export function useAuthOperations(
         }
       }
       
-      // First, get user by username to get their email
-      const { data: userProfile, error: profileError } = await supabase
-        .from('profiles')
+      // Real Supabase login
+      // First check if user exists in the Users table
+      const { data: existingUser, error: userError } = await supabase
+        .from('Users')
         .select('*')
         .eq('username', username)
         .single();
       
-      if (profileError || !userProfile) {
+      if (userError || !existingUser) {
         throw new Error('Invalid credentials');
       }
       
-      // Then sign in with email/password
-      const { error } = await supabase.auth.signInWithPassword({
-        email: `${username}@example.com`, // Using username as email for demo
-        password,
-      });
-      
-      if (error) {
-        throw error;
+      // Simple password verification (Note: In a real app, this should be done server-side!)
+      if (existingUser.password_hash !== password) {
+        throw new Error('Invalid credentials');
       }
       
-      setUser(userProfile as UserProfile);
+      // Create user profile from database record
+      const userProfile: UserProfile = {
+        id: existingUser.user_id.toString(),
+        username: existingUser.username,
+        name: existingUser.full_name,
+        age: existingUser.age,
+        height: existingUser.height_cm,
+        weight: existingUser.weight_kg,
+      };
+      
+      setUser(userProfile);
+      // Store in localStorage for persistence
+      localStorage.setItem('currentUser', JSON.stringify(userProfile));
+      
+      toast({
+        title: 'Success',
+        description: 'You have successfully logged in',
+      });
     } catch (error) {
       console.error('Login error:', error);
+      toast({
+        title: 'Login failed',
+        description: error instanceof Error ? error.message : 'Invalid credentials',
+        variant: 'destructive',
+      });
       throw new Error('Invalid credentials');
     } finally {
       setIsLoading(false);
@@ -83,12 +104,17 @@ export function useAuthOperations(
         
         setUser(mockUser);
         localStorage.setItem('mockUser', JSON.stringify(mockUser));
+        
+        toast({
+          title: 'Success',
+          description: 'Account created successfully in mock mode',
+        });
         return;
       }
-
+      
       // Check if username already exists
       const { data: existingUser } = await supabase
-        .from('profiles')
+        .from('Users')
         .select('username')
         .eq('username', userData.username)
         .single();
@@ -97,43 +123,54 @@ export function useAuthOperations(
         throw new Error('Username already exists');
       }
       
-      // Create auth user first (using username as email for simplicity)
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: `${userData.username}@example.com`,
-        password: userData.password,
-      });
+      // Generate a unique user ID
+      const user_id = Date.now(); // Simple approach for demo purposes
       
-      if (authError || !authData.user) {
-        throw authError || new Error('Failed to create user');
-      }
-      
-      // Create user profile in profiles table
-      const { error: profileError } = await supabase
-        .from('profiles')
+      // Insert new user into Users table
+      const { error: insertError } = await supabase
+        .from('Users')
         .insert([{
-          id: authData.user.id,
+          user_id: user_id,
           username: userData.username,
-          name: userData.name,
+          password_hash: userData.password, // In a real app, this should be hashed!
+          full_name: userData.name,
           age: userData.age,
-          height: userData.height,
-          weight: userData.weight,
+          height_cm: userData.height,
+          weight_kg: userData.weight
         }]);
       
-      if (profileError) {
-        throw profileError;
+      if (insertError) {
+        console.error('Registration error:', insertError);
+        throw new Error(insertError.message || 'Failed to create account');
       }
       
-      // Get the created profile
-      const { data: newProfile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
+      // Create user profile object
+      const userProfile: UserProfile = {
+        id: user_id.toString(),
+        username: userData.username,
+        name: userData.name,
+        age: userData.age,
+        height: userData.height,
+        weight: userData.weight,
+        created_at: new Date().toISOString(),
+      };
       
-      setUser(newProfile as UserProfile);
+      // Set the user in state and localStorage
+      setUser(userProfile);
+      localStorage.setItem('currentUser', JSON.stringify(userProfile));
+      
+      toast({
+        title: 'Success',
+        description: 'Your account has been created successfully',
+      });
     } catch (error) {
       console.error('Registration error:', error);
-      throw new Error(error instanceof Error ? error.message : 'Registration failed');
+      toast({
+        title: 'Registration failed',
+        description: error instanceof Error ? error.message : 'Registration failed',
+        variant: 'destructive',
+      });
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -144,12 +181,19 @@ export function useAuthOperations(
     if (isMockMode) {
       // For development without Supabase, clear local storage
       localStorage.removeItem('mockUser');
+      localStorage.removeItem('currentUser');
       setUser(null);
       return;
     }
     
-    await supabase.auth.signOut();
+    // Clear user from localStorage
+    localStorage.removeItem('currentUser');
     setUser(null);
+    
+    toast({
+      title: 'Logged out',
+      description: 'You have been successfully logged out',
+    });
   };
 
   return {
